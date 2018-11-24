@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="fr">
+	<head>
+		<title>Stéphane ARCELLIER - Visualisation de Maillages (Source code : Romain RAFFIN)</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				color: #808080;
+				font-family:Monospace;
+				font-size:13px;
+				text-align:center;
+
+				background-color: #fff;
+				margin: 0px;
+				overflow: hidden;
+			}
+
+			#info {
+				position: absolute;
+				top: 0px; width: 100%;
+				padding: 5px;
+			}
+			
+			#objinfo {
+				position: absolute;
+				top: 15px; width: 100%;
+				padding: 5px;
+			}
+
+			a {
+				color: #0080ff;
+			}
+
+		</style>
+	</head>
+	<body>
+
+		<div id="container"></div>
+		<div id="info">Afficheur de maillage 3D</div>
+		<div id="objinfo"></div>
+
+		<script src="js/three.min.js"></script>
+		<script src="js/controls/TrackballControls.js"></script>
+		<script src="js/loaders/PLYLoader.js"></script>
+		<script src="js/loaders/OBJLoader.js"></script>
+
+		<script src="js/loaders/ctm/lzma.js"></script>
+		<script src="js/loaders/ctm/ctm.js"></script>
+		<script src="js/loaders/ctm/CTMLoader.js"></script>
+
+		<script>
+
+			//Vérification des possibilités WebGL
+			//if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var container;
+			var camera, scene, renderer, geometryMesh;
+			var findex, facesSelected = 0;
+			//var ptintersect;
+			var vertexToFace = new Array();
+			var facesInfo = new Array();
+			var faceIds = new Array();
+			var raycaster = new THREE.Raycaster();
+			var mouseVector = new THREE.Vector2();
+			var meshOBJ;
+			//theShadowLight;
+			var mouseX = 0, mouseY = 0;
+			var windowHalfX = window.innerWidth / 2;
+			var windowHalfY = window.innerHeight / 2;
+			
+			function updateObjectInfo(vertices, faces){
+				var obji = document.getElementById('objinfo');
+				obji.innerHTML = vertices + " vertices, " + faces + " faces.";
+			}
+			
+			//Build an hashmap that contains faces neighbors of each face.
+			//Credit : https://stackoverflow.com/questions/33073136/given-a-mesh-face-find-its-neighboring-faces
+			function facesNeighbors(){
+				for (var fx = 0; fx < geometryMesh.faces.length; fx++) {
+					vertexToFace[fx] = new Array();
+				}
+				for (var fx = 0; fx < geometryMesh.faces.length; fx++) {
+					var f = geometryMesh.faces[fx];
+					var ax = f.a;
+					var bx = f.b;
+					var cx = f.c;
+
+					vertexToFace[ax].push(fx);
+					vertexToFace[bx].push(fx);
+					vertexToFace[cx].push(fx);
+				}
+			}
+
+				//Lancement du rendu
+				init();
+				animate();
+
+			function init() {
+
+				container = document.getElementById( 'container' );
+
+				var canvas = document.createElement( 'canvas' );
+					canvas.width = 128;
+					canvas.height = 128;
+
+				var context = canvas.getContext( '2d' );
+				context.fillRect( 0, 0, canvas.width, canvas.height );
+
+				var lightBox = 10.0;
+
+
+				renderer = new THREE.WebGLRenderer( { antialias: true} );
+					renderer.setClearColor( 0xffffff );
+					renderer.setPixelRatio( window.devicePixelRatio );
+					renderer.setSize( window.innerWidth, window.innerHeight );
+
+									//Caméra
+				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.0001, 2000 );
+					camera.position.x = -1.25;
+					camera.position.y = 2.5;
+					camera.position.z = 3;
+					cameraTarget = new THREE.Vector3( 0, 0, 0 );
+
+				//Contrôles
+				controls = new THREE.TrackballControls( camera );
+					controls.rotateSpeed = 5.0;
+					controls.zoomSpeed = 2.5;
+					controls.panSpeed =1;
+
+					controls.noZoom = false;
+					controls.noPan = false;
+
+					controls.staticMoving = true;
+					controls.dynamicDampingFactor = 0.3;
+
+				//Création de la scène
+				scene = new THREE.Scene();
+				camera.lookAt(scene.position);
+
+				//Mise en place d'une lumière ambiente
+				scene.add( new THREE.AmbientLight( 0xffffff ) );
+				var myLightPos = new THREE.Vector3( 0, 0, 0 );
+					
+				//Fichier source du maillage, stanford_bunny.obj, loader obj.
+				var sourceOBJ = 'data/stanford_bunny.obj';
+				console.log("viewMesh Obj : "+ sourceOBJ);
+					var geometryOBJ;
+					var loaderOBJ = new THREE.OBJLoader();
+
+					//object est de type THREE.Object3D
+					loaderOBJ.load(sourceOBJ, function ( object ) {
+					
+					//mesh est de type THREE.Mesh
+					object.traverse(function (meshOBJ) {
+						//mesh = meshOBJ;
+						geometryOBJ = meshOBJ.geometry;
+					});
+					
+					//Si geometryOBJ est de type BufferGeometry, on fait une conversion
+					//vers le type Geometry, afin de pouvoir facilement manipuler les 
+					//données qu'on souhaite.
+					if(geometryOBJ instanceof THREE.BufferGeometry){
+						geometryOBJ = new THREE.Geometry().fromBufferGeometry(geometryOBJ);
+						//Suppression d'éventuelles copies d'un même sommet générées par
+						//la conversion.
+						geometryOBJ.mergeVertices();
+					}
+					
+					console.log(geometryOBJ.vertices.length + " vertices, " + geometryOBJ.faces.length + " faces.");
+					updateObjectInfo(geometryOBJ.vertices.length, geometryOBJ.faces.length);
+					
+					geometryOBJ.computeFaceNormals();
+					geometryOBJ.computeVertexNormals();
+					geometryOBJ.computeBoundingBox();
+
+					var centreOBJ = new THREE.Vector3();
+					centreOBJ.x = ( geometryOBJ.boundingBox.max.x + geometryOBJ.boundingBox.min.x ) / 2.0;
+					centreOBJ.y = ( geometryOBJ.boundingBox.max.y + geometryOBJ.boundingBox.min.y ) / 2.0;
+					centreOBJ.z = ( geometryOBJ.boundingBox.max.z + geometryOBJ.boundingBox.min.z ) / 2.0;
+
+					geometryOBJ.computeBoundingSphere();
+
+					var materialOBJ = new THREE.MeshBasicMaterial({
+						color: 0xcd853f,
+						shading: THREE.FlatShading,
+						vertexColors: THREE.FaceColors	
+					} );
+
+					meshOBJ = new THREE.Mesh( geometryOBJ, materialOBJ );
+					meshOBJ.position.set( -centreOBJ.x, -centreOBJ.y, -centreOBJ.z);
+					meshOBJ.castShadow = true;
+					meshOBJ.receiveShadow = true;
+					geometryMesh = meshOBJ.geometry;
+					
+					facesNeighbors();
+
+				    myLightPos.x = 1.1*geometryOBJ.boundingBox.max.x;
+					myLightPos.y = 1.1*geometryOBJ.boundingBox.max.y;
+					myLightPos.z = 1.1*geometryOBJ.boundingBox.max.z;
+
+					scene.add( meshOBJ );
+
+					});
+
+				//une lumière supplémentaire
+				var myLight = new THREE.SpotLight( 0xffffff );
+					myLight.castShadow = false;            // default false
+					myLight.position.set(myLightPos.x, myLightPos.y, myLightPos.z);
+				scene.add( myLight );
+
+				//gestion des ombres
+					renderer.shadowMap.enabled = true;
+					//renderer.shadowMap.cullFace = THREE.CullFaceFront;//deprecated in v89
+					//renderer.shadowMap.renderReverseSided = true; //v89 deprecated in v97
+					renderer.shadowMap.type = THREE.PCFSoftShadowMap; // default THREE.PCFShadowMap
+
+					//un spotLight pour les ombres
+					var lightShadow = new THREE.SpotLight( 0xffffff );
+					lightShadow.castShadow = true;            // default false
+					scene.add( lightShadow );
+
+					//les paramètres du spotlight des ombres
+					lightShadow.shadow.mapSize.width = 512;  // default (cf doc ThreeJS.org)
+					lightShadow.shadow.mapSize.height = 512; // default
+					lightShadow.shadow.camera.near = 0.5;       // default
+					lightShadow.shadow.camera.far = 500      // default
+					lightShadow.position.set(camera.position.x, camera.position.y, camera.position.z);
+
+				container.appendChild( renderer.domElement );
+
+				window.addEventListener( 'resize', onWindowResize, false );
+				window.addEventListener('mousemove', onMouseMove, false);
+				window.addEventListener('click', onMouseClick, false);
+			}
+
+			function onWindowResize() {
+				windowHalfX = window.innerWidth / 2;
+				windowHalfY = window.innerHeight / 2;
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}
+			
+			function onMouseMove(event){
+				event.preventDefault();
+				var array = getMousePosition( container, event.clientX, event.clientY );
+				mouseVector.fromArray( array );
+				mouseVector.set((mouseVector.x * 2) - 1, -(mouseVector.y * 2) + 1);
+				raycaster.setFromCamera( mouseVector, camera );
+				var intersects = raycaster.intersectObjects(scene.children);
+				if(intersects.length > 0){
+					findex = intersects[0].faceIndex;
+					//cone.lookAt(intersects[0].face.normal);
+					//ptintersect = intersects[0].point;
+				}else{
+					//ptintersect = undefined;
+					findex = undefined;
+				}
+			}
+			
+			var getMousePosition = function ( dom, x, y ) {
+				var rect = dom.getBoundingClientRect();
+				return [ ( x - rect.left ) / rect.width, ( y - rect.top ) / rect.height ];
+			};
+			
+			function findWithAttribute(array, attr, value){
+				for(var i = 0; i < array.length; i += 1) {
+					if(array[i][attr] === value) {
+						return i;
+					}
+				}
+				return -1;
+			}
+			
+			function buildFaceInfo(n, p){
+				var faceinfo = {
+					//Data for A* Algorithm
+					cout : 0,
+					faceId : n,
+					parentObj : p,
+					neighbors : [
+						vertexToFace[geometryMesh.faces[n].a], 
+						vertexToFace[geometryMesh.faces[n].b], 
+						vertexToFace[geometryMesh.faces[n].c]
+					]
+				};
+				return faceinfo;
+			}
+			
+			//Path-finding algorithm between two faces.
+			//Pseudo-code here : https://fr.wikipedia.org/wiki/Algorithme_A*
+			function astar_algorithm(ptstart, ptend, costlimit){
+				var closedList = new Array();
+				var openList = new Array();
+				openList.push(ptstart);
+				while(openList.length != 0){
+					//openList is a priority queue, extract object with min heuristic first.
+					var u = openList.shift();
+					if(u.faceId == ptend.faceId){
+						//Reconstitution chemin, qui débute par le dernier
+						//élément de la liste fermée.
+						console.log("A* algorithm finished successfully, recover path ...");
+						var parentc = closedList[closedList.length - 1].parentObj;
+						//On colore les faces par ascendence.
+						while(parentc != undefined){
+							geometryMesh.faces[parentc.faceId].color.setRGB(0,1,0);
+							faceIds[faceIds.length] = parentc.faceId;
+							parentc = parentc.parentObj;
+						}
+						geometryMesh.colorsNeedUpdate = true;
+						return;
+					}
+					for(var i = 0; i < u.neighbors.length; i++){
+						for(var j = 0; j < u.neighbors[i].length; j++){
+							var n = u.neighbors[i][j];
+							var faceinfo;
+							var ok = true;
+							if(u.cout + 1 > costlimit){
+								ok = false;
+							}
+							if(ok && findWithAttribute(closedList, 'faceId', n) != -1){
+								if(closedList[findWithAttribute(closedList, 'faceId', n)].cout < u.cout + 1){
+									ok = false;
+								}
+							} 
+							if(ok && findWithAttribute(openList, 'faceId', n) != -1){
+								if(openList[findWithAttribute(openList, 'faceId', n)].cout < u.cout + 1){
+									ok = false;
+								}
+							}
+							if(ok){
+								faceinfo = buildFaceInfo(n, u);
+								faceinfo.cout = u.cout + 1;
+								openList.push(faceinfo);
+							}
+						}
+					}
+					closedList.push(u);
+				}
+				console.log("End of A* Algorithm, no path found.");
+			}
+			
+			function onMouseClick(event){
+				event.preventDefault();
+				if(event.button == 0){ //Left Click
+					//Face chosen and not yet in table.
+					if((findex != undefined) && (faceIds.indexOf(findex) == -1)){
+						console.log("Add point and face selected.");
+						var faceinfo = buildFaceInfo(findex, undefined);
+						facesInfo[facesInfo.length] = faceinfo;
+						faceIds[faceIds.length] = findex;
+						facesSelected ++;
+						geometryMesh.faces[findex].color.setRGB(0,1,0);
+						geometryMesh.colorsNeedUpdate = true;
+						//At least two faces selected for outline drawing.
+						if(facesInfo.length >= 2 && facesSelected >= 2){
+							astar_algorithm(facesInfo[facesInfo.length - 2], facesInfo[facesInfo.length - 1], 7);
+							if(facesInfo.length % 4 == 0){
+								astar_algorithm(facesInfo[facesInfo.length - 4], facesInfo[facesInfo.length - 1], 7);
+								console.log("Outline finished (4 faces selected)");
+								facesSelected = 0; //New outline
+							}
+						}
+					}
+				}
+				if(event.button == 2){ //Right Click
+					if(faceIds.length != 0){
+						console.log("Erase points and faces selected.");
+						for(var i = 0; i < faceIds.length; i++){
+							geometryMesh.faces[faceIds[i]].color.setRGB(1, 1, 1);
+						}
+						geometryMesh.colorsNeedUpdate = true;
+						facesInfo.splice(0, facesInfo.length);
+						faceIds.splice(0, faceIds.length);
+					}
+				}
+			}
+
+			function animate() {
+				requestAnimationFrame( animate );
+				controls.update();
+
+				render();
+			}
+
+			function render() {
+				renderer.render( scene, camera );
+			}
+		</script>
+	</body>
+</html>
