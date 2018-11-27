@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fr">
 	<head>
-		<title>Stéphane ARCELLIER - Visualisation de Maillages (Source code : Romain RAFFIN)</title>
+		<title>Stéphane ARCELLIER - Projet Cactus WebGL / Three.js (Source code : Romain RAFFIN)</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 		<style>
@@ -184,7 +184,7 @@
 					var materialOBJ = new THREE.MeshBasicMaterial({
 						color: 0xcd853f,
 						shading: THREE.FlatShading,
-						vertexColors: THREE.FaceColors	
+						vertexColors: THREE.FaceColors,
 					} );
 
 					meshOBJ = new THREE.Mesh( geometryOBJ, materialOBJ );
@@ -256,8 +256,7 @@
 					//cone.lookAt(intersects[0].face.normal);
 					//ptintersect = intersects[0].point;
 				}else{
-					//ptintersect = undefined;
-					findex = undefined;
+					if(findex != undefined) findex = undefined;
 				}
 			}
 			
@@ -276,11 +275,18 @@
 			}
 			
 			function buildFaceInfo(n, p){
+				var v1 = geometryMesh.vertices[geometryMesh.faces[n].a];
+				var v2 = geometryMesh.vertices[geometryMesh.faces[n].b];
+				var v3 = geometryMesh.vertices[geometryMesh.faces[n].c];
 				var faceinfo = {
+					//Face centroid
+					centerX : (v1.x + v2.x + v3.x) / 3,
+					centerY : (v1.y + v2.y + v3.y) / 3,
+					centerZ : (v1.z + v2.z + v3.z) / 3,
 					//Data for A* Algorithm
-					cout : 0,
+					//cout : 0,
 					faceId : n,
-					parentObj : p,
+					//parentObj : p,
 					neighbors : [
 						vertexToFace[geometryMesh.faces[n].a], 
 						vertexToFace[geometryMesh.faces[n].b], 
@@ -292,7 +298,7 @@
 			
 			//Path-finding algorithm between two faces.
 			//Pseudo-code here : https://fr.wikipedia.org/wiki/Algorithme_A*
-			function astar_algorithm(ptstart, ptend, costlimit){
+			/*function astar_algorithm(ptstart, ptend, costlimit){
 				var closedList = new Array();
 				var openList = new Array();
 				openList.push(ptstart);
@@ -341,7 +347,83 @@
 					closedList.push(u);
 				}
 				console.log("End of A* Algorithm, no path found.");
+			}*/
+			
+			function draw_outline(facestart, faceend){
+				var maxDiff, currDiff, nextFace;
+				for(var i = 0; i < facestart.neighbors.length; i++){
+					for(var j = 0; j < facestart.neighbors[i].length; j++){
+						if(facestart.neighbors[i][j] == faceend.faceId) return;
+					}
+				}
+				//Compute distance between facestart and faceend
+				var distX = faceend.centerX - facestart.centerX;
+				var distY = faceend.centerY - facestart.centerY;
+				var distZ = faceend.centerZ - facestart.centerZ;
+				var dist = Math.sqrt(Math.pow(distX, 2) + Math.pow(distY, 2) + Math.pow(distZ, 2));
+				for(var i = 0; i < facestart.neighbors.length; i++){
+					for(var j = 0; j < facestart.neighbors[i].length; j++){
+						var faceinfo = buildFaceInfo(facestart.neighbors[i][j], facestart);
+						//Compute distance between neighbor of facestart and faceend
+						var distneighX = faceend.centerX - faceinfo.centerX;
+						var distneighY = faceend.centerY - faceinfo.centerY;
+						var distneighZ = faceend.centerZ - faceinfo.centerZ;
+						var distneigh = Math.sqrt(Math.pow(distneighX, 2) + Math.pow(distneighY, 2) + Math.pow(distneighZ, 2));
+						currDiff = dist - distneigh;
+						//If facestart neighbor's centroid is the nearest one of faceend's centroid (for now)
+						if(maxDiff == undefined || maxDiff < currDiff){
+							if(faceIds.indexOf(faceinfo.faceId) == -1){
+								maxDiff = currDiff;
+								nextFace = faceinfo;
+							}
+						}
+					}
+				}
+				//Elected face is selected, we call this function again with this face
+				//instead of facestart as first parameter.
+				geometryMesh.faces[nextFace.faceId].color.setRGB(0,1,0);
+				faceIds[faceIds.length] = nextFace.faceId;
+				draw_outline(nextFace, faceend);
 			}
+			
+			/*function fill_outline(lastface, firstface){
+				var distToCenter, minDist, maxDiff, centerFace = lastface, bestneigh;
+				var oldCenters = new Array();
+				//Compute center of right between faces parameters' centroids
+				var cX = lastface.centerX + firstface.centerX / 2;
+				var cY = lastface.centerY + firstface.centerY / 2;
+				var cZ = lastface.centerZ + firstface.centerZ / 2;
+				//Compute distance between lastface and center of right.
+				var distX = cX - lastface.centerX;
+				var distY = cY - lastface.centerY;
+				var distZ = cZ - lastface.centerZ;
+				var dist = Math.sqrt(Math.pow(distX, 2) + Math.pow(distY, 2) + Math.pow(distZ, 2));
+				minDist = dist;
+				while(minDist > 0){
+					for(var i = 0; i < centerFace.neighbors.length; i++){
+						for(var j = 0; j < centerFace.neighbors[i].length; j++){
+							var faceinfo = buildFaceInfo(centerFace.neighbors[i][j], centerFace);
+							//Compute distance between neighbor of current centerFace and center of right.
+							var distneighX = cX - faceinfo.centerX;
+							var distneighY = cY - faceinfo.centerY;
+							var distneighZ = cZ - faceinfo.centerZ;
+							var distneigh = Math.sqrt(Math.pow(distneighX, 2) + Math.pow(distneighY, 2) + Math.pow(distneighZ, 2));
+							//If facestart neighbor's centroid is the nearest one of center of right (for now)
+							if(minDist == undefined || minDist > distneigh){
+								if(oldCenters.indexOf(faceinfo.faceId) == -1){
+									minDist = distneigh;
+									bestneigh = faceinfo;
+								}
+							}
+						}
+					}
+					centerFace = bestneigh;
+					oldCenters[oldCenters.length] = centerFace.faceId;
+					minDist = undefined;
+					console.log(distneigh);
+				}
+				geometryMesh.faces[centerFace.faceId].color.setRGB(0,0,0);
+			}*/
 			
 			function onMouseClick(event){
 				event.preventDefault();
@@ -357,18 +439,22 @@
 						geometryMesh.colorsNeedUpdate = true;
 						//At least two faces selected for outline drawing.
 						if(facesInfo.length >= 2 && facesSelected >= 2){
-							astar_algorithm(facesInfo[facesInfo.length - 2], facesInfo[facesInfo.length - 1], 7);
+							//astar_algorithm(facesInfo[facesInfo.length - 2], facesInfo[facesInfo.length - 1], 7);
+							draw_outline(facesInfo[facesInfo.length - 2], facesInfo[facesInfo.length - 1]);
 							if(facesInfo.length % 4 == 0){
-								astar_algorithm(facesInfo[facesInfo.length - 4], facesInfo[facesInfo.length - 1], 7);
+								//astar_algorithm(facesInfo[facesInfo.length - 4], facesInfo[facesInfo.length - 1], 7);
+								draw_outline(facesInfo[facesInfo.length - 4], facesInfo[facesInfo.length - 1]);
 								console.log("Outline finished (4 faces selected)");
+								//fill_outline(facesInfo[facesInfo.length - 3], facesInfo[facesInfo.length - 1]);
 								facesSelected = 0; //New outline
 							}
+							geometryMesh.colorsNeedUpdate = true;
 						}
 					}
 				}
 				if(event.button == 2){ //Right Click
 					if(faceIds.length != 0){
-						console.log("Erase points and faces selected.");
+						console.log("Erase faces selected.");
 						for(var i = 0; i < faceIds.length; i++){
 							geometryMesh.faces[faceIds[i]].color.setRGB(1, 1, 1);
 						}
