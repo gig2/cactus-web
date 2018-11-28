@@ -60,7 +60,7 @@
 			//var ptintersect;
 			var vertexToFace = new Array();
 			var facesInfo = new Array();
-			var faceIds = new Array();
+			var outline = new Array(); //outline
 			var raycaster = new THREE.Raycaster();
 			var mouseVector = new THREE.Vector2();
 			var meshOBJ;
@@ -313,7 +313,7 @@
 						//On colore les faces par ascendence.
 						while(parentc != undefined){
 							geometryMesh.faces[parentc.faceId].color.setRGB(0,1,0);
-							faceIds[faceIds.length] = parentc.faceId;
+							outline[outline.length] = parentc.faceId;
 							parentc = parentc.parentObj;
 						}
 						geometryMesh.colorsNeedUpdate = true;
@@ -372,7 +372,7 @@
 						currDiff = dist - distneigh;
 						//If facestart neighbor's centroid is the nearest one of faceend's centroid (for now)
 						if(maxDiff == undefined || maxDiff < currDiff){
-							if(faceIds.indexOf(faceinfo.faceId) == -1){
+							if(outline.indexOf(faceinfo.faceId) == -1){
 								maxDiff = currDiff;
 								nextFace = faceinfo;
 							}
@@ -382,16 +382,16 @@
 				//Elected face is selected, we call this function again with this face
 				//instead of facestart as first parameter.
 				geometryMesh.faces[nextFace.faceId].color.setRGB(0,1,0);
-				faceIds[faceIds.length] = nextFace.faceId;
+				outline[outline.length] = nextFace.faceId;
 				draw_outline(nextFace, faceend);
 			}
 			
-			function fill_outline(lastface, firstface){
+			function getOutlineCenterFace(lastface, firstface){
 				var currMinDist, oldMinDist, minDist, centerFace = lastface, bestneigh;
 				//Compute center of right between faces parameters' centroids
-				var cX = lastface.centerX + firstface.centerX / 2;
-				var cY = lastface.centerY + firstface.centerY / 2;
-				var cZ = lastface.centerZ + firstface.centerZ / 2;
+				var cX = (lastface.centerX + firstface.centerX) / 2;
+				var cY = (lastface.centerY + firstface.centerY) / 2;
+				var cZ = (lastface.centerZ + firstface.centerZ) / 2;
 				//Compute distance between lastface and center of right.
 				var distX = cX - lastface.centerX;
 				var distY = cY - lastface.centerY;
@@ -399,6 +399,9 @@
 				var dist = (Math.sqrt(Math.pow(distX, 2) + Math.pow(distY, 2) + Math.pow(distZ, 2)));
 				currMinDist = dist;
 				oldMinDist = dist + 1;
+				//Search for a face which its centroid is the nearest point from the outline center
+				//(Stop when distance increases, that is to say when last distance computed > distance computed
+				//before this one).
 				while(currMinDist < oldMinDist){
 					for(var i = 0; i < centerFace.neighbors.length; i++){
 						for(var j = 0; j < centerFace.neighbors[i].length; j++){
@@ -413,7 +416,6 @@
 								if(faceinfo.faceId != centerFace.faceId){
 									minDist = distneigh;
 									bestneigh = faceinfo;
-									geometryMesh.faces[bestneigh.faceId].color.setRGB(0,0,0);
 								}
 							}
 						}
@@ -421,22 +423,55 @@
 					centerFace = bestneigh;
 					oldMinDist = currMinDist;
 					currMinDist = minDist;
-					console.log(oldMinDist + " " + currMinDist);
 					minDist = undefined;
 					bestneigh = undefined;
 				}
-				geometryMesh.faces[centerFace.faceId].color.setRGB(0,0,0);
+				return centerFace;
+			}
+			
+			function spreadCheckedColor(face, insidetab){
+				var outlineReached = false;
+				var currFace = face;
+				for(var i = 0; i < currFace.neighbors.length; i++){
+					for(var j = 0; j < currFace.neighbors[i].length; j++){
+						var faceinfo = buildFaceInfo(currFace.neighbors[i][j], currFace);
+						//Check if this neighbor belongs to the outline
+						if(outline.indexOf(faceinfo.faceId) != -1){
+							geometryMesh.faces[currFace.faceId].color.setRGB(0, 1, 0);
+							return;
+						}
+					}
+				}
+				for(var i = 0; i < currFace.neighbors.length; i++){
+					for(var j = 0; j < currFace.neighbors[i].length; j++){
+						var faceinfo = buildFaceInfo(currFace.neighbors[i][j], currFace);
+						var color = geometryMesh.faces[faceinfo.faceId].color;
+						if(insidetab.indexOf(faceinfo.faceId) == -1){
+							geometryMesh.faces[faceinfo.faceId].color.setRGB(0, 1, 0);
+							insidetab[insidetab.length] = faceinfo.faceId;
+							spreadCheckedColor(faceinfo, insidetab);
+						}
+					}
+				}
+			}
+			
+			function fill_outline(lastface, firstface){
+				var inside = new Array();
+				var centerFace = getOutlineCenterFace(lastface, firstface);
+				//geometryMesh.faces[centerFace.faceId].color.setRGB(0,1,0);
+				spreadCheckedColor(centerFace, inside);
+				outline = outline.concat(inside);
 			}
 			
 			function onMouseClick(event){
 				event.preventDefault();
 				if(event.button == 0){ //Left Click
 					//Face chosen and not yet in table.
-					if((findex != undefined) && (faceIds.indexOf(findex) == -1)){
+					if((findex != undefined) && (outline.indexOf(findex) == -1)){
 						console.log("Add point and face selected.");
 						var faceinfo = buildFaceInfo(findex, undefined);
 						facesInfo[facesInfo.length] = faceinfo;
-						faceIds[faceIds.length] = findex;
+						outline[outline.length] = findex;
 						facesSelected ++;
 						geometryMesh.faces[findex].color.setRGB(0,1,0);
 						geometryMesh.colorsNeedUpdate = true;
@@ -448,7 +483,7 @@
 								//astar_algorithm(facesInfo[facesInfo.length - 4], facesInfo[facesInfo.length - 1], 7);
 								draw_outline(facesInfo[facesInfo.length - 4], facesInfo[facesInfo.length - 1]);
 								console.log("Outline finished (4 faces selected)");
-								//fill_outline(facesInfo[facesInfo.length - 3], facesInfo[facesInfo.length - 1]);
+								fill_outline(facesInfo[facesInfo.length - 3], facesInfo[facesInfo.length - 1]);
 								facesSelected = 0; //New outline
 							}
 							geometryMesh.colorsNeedUpdate = true;
@@ -456,14 +491,14 @@
 					}
 				}
 				if(event.button == 2){ //Right Click
-					if(faceIds.length != 0){
+					if(outline.length != 0){
 						console.log("Erase faces selected.");
-						for(var i = 0; i < faceIds.length; i++){
-							geometryMesh.faces[faceIds[i]].color.setRGB(1, 1, 1);
+						for(var i = 0; i < outline.length; i++){
+							geometryMesh.faces[outline[i]].color.setRGB(1, 1, 1);
 						}
 						geometryMesh.colorsNeedUpdate = true;
 						facesInfo.splice(0, facesInfo.length);
-						faceIds.splice(0, faceIds.length);
+						outline.splice(0, outline.length);
 					}
 				}
 			}
