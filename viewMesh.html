@@ -48,6 +48,9 @@
 		<script src="js/loaders/ctm/lzma.js"></script>
 		<script src="js/loaders/ctm/ctm.js"></script>
 		<script src="js/loaders/ctm/CTMLoader.js"></script>
+		
+		<script src="utils.js"></script>
+		<script src="indexation.js"></script>
 
 		<script>
 
@@ -68,29 +71,6 @@
 			var mouseX = 0, mouseY = 0;
 			var windowHalfX = window.innerWidth / 2;
 			var windowHalfY = window.innerHeight / 2;
-			
-			function updateObjectInfo(vertices, faces){
-				var obji = document.getElementById('objinfo');
-				obji.innerHTML = vertices + " vertices, " + faces + " faces.";
-			}
-			
-			//Build an hashmap that contains faces neighbors of each face.
-			//Credit : https://stackoverflow.com/questions/33073136/given-a-mesh-face-find-its-neighboring-faces
-			function facesNeighbors(){
-				for (var fx = 0; fx < geometryMesh.faces.length; fx++) {
-					vertexToFace[fx] = new Array();
-				}
-				for (var fx = 0; fx < geometryMesh.faces.length; fx++) {
-					var f = geometryMesh.faces[fx];
-					var ax = f.a;
-					var bx = f.b;
-					var cx = f.c;
-
-					vertexToFace[ax].push(fx);
-					vertexToFace[bx].push(fx);
-					vertexToFace[cx].push(fx);
-				}
-			}
 
 				//Lancement du rendu
 				init();
@@ -193,7 +173,7 @@
 					meshOBJ.receiveShadow = true;
 					geometryMesh = meshOBJ.geometry;
 					
-					facesNeighbors();
+					facesNeighbors(vertexToFace, geometryMesh);
 
 				    myLightPos.x = 1.1*geometryOBJ.boundingBox.max.x;
 					myLightPos.y = 1.1*geometryOBJ.boundingBox.max.y;
@@ -260,216 +240,13 @@
 				}
 			}
 			
-			var getMousePosition = function ( dom, x, y ) {
-				var rect = dom.getBoundingClientRect();
-				return [ ( x - rect.left ) / rect.width, ( y - rect.top ) / rect.height ];
-			};
-			
-			function findWithAttribute(array, attr, value){
-				for(var i = 0; i < array.length; i += 1) {
-					if(array[i][attr] === value) {
-						return i;
-					}
-				}
-				return -1;
-			}
-			
-			function buildFaceInfo(n, p){
-				var v1 = geometryMesh.vertices[geometryMesh.faces[n].a];
-				var v2 = geometryMesh.vertices[geometryMesh.faces[n].b];
-				var v3 = geometryMesh.vertices[geometryMesh.faces[n].c];
-				var faceinfo = {
-					//Face centroid
-					centerX : (v1.x + v2.x + v3.x) / 3,
-					centerY : (v1.y + v2.y + v3.y) / 3,
-					centerZ : (v1.z + v2.z + v3.z) / 3,
-					//Data for A* Algorithm
-					//cout : 0,
-					faceId : n,
-					//parentObj : p,
-					neighbors : [
-						vertexToFace[geometryMesh.faces[n].a], 
-						vertexToFace[geometryMesh.faces[n].b], 
-						vertexToFace[geometryMesh.faces[n].c]
-					]
-				};
-				return faceinfo;
-			}
-			
-			//Path-finding algorithm between two faces.
-			//Pseudo-code here : https://fr.wikipedia.org/wiki/Algorithme_A*
-			/*function astar_algorithm(ptstart, ptend, costlimit){
-				var closedList = new Array();
-				var openList = new Array();
-				openList.push(ptstart);
-				while(openList.length != 0){
-					//openList is a priority queue, extract object with min heuristic first.
-					var u = openList.shift();
-					if(u.faceId == ptend.faceId){
-						//Reconstitution chemin, qui débute par le dernier
-						//élément de la liste fermée.
-						console.log("A* algorithm finished successfully, recover path ...");
-						var parentc = closedList[closedList.length - 1].parentObj;
-						//On colore les faces par ascendence.
-						while(parentc != undefined){
-							geometryMesh.faces[parentc.faceId].color.setRGB(0,1,0);
-							outline[outline.length] = parentc.faceId;
-							parentc = parentc.parentObj;
-						}
-						geometryMesh.colorsNeedUpdate = true;
-						return;
-					}
-					for(var i = 0; i < u.neighbors.length; i++){
-						for(var j = 0; j < u.neighbors[i].length; j++){
-							var n = u.neighbors[i][j];
-							var faceinfo;
-							var ok = true;
-							if(u.cout + 1 > costlimit){
-								ok = false;
-							}
-							if(ok && findWithAttribute(closedList, 'faceId', n) != -1){
-								if(closedList[findWithAttribute(closedList, 'faceId', n)].cout < u.cout + 1){
-									ok = false;
-								}
-							} 
-							if(ok && findWithAttribute(openList, 'faceId', n) != -1){
-								if(openList[findWithAttribute(openList, 'faceId', n)].cout < u.cout + 1){
-									ok = false;
-								}
-							}
-							if(ok){
-								faceinfo = buildFaceInfo(n, u);
-								faceinfo.cout = u.cout + 1;
-								openList.push(faceinfo);
-							}
-						}
-					}
-					closedList.push(u);
-				}
-				console.log("End of A* Algorithm, no path found.");
-			}*/
-			
-			function draw_outline(facestart, faceend){
-				var maxDiff, currDiff, nextFace;
-				for(var i = 0; i < facestart.neighbors.length; i++){
-					for(var j = 0; j < facestart.neighbors[i].length; j++){
-						if(facestart.neighbors[i][j] == faceend.faceId) return;
-					}
-				}
-				//Compute distance between facestart and faceend
-				var distX = faceend.centerX - facestart.centerX;
-				var distY = faceend.centerY - facestart.centerY;
-				var distZ = faceend.centerZ - facestart.centerZ;
-				var dist = Math.sqrt(Math.pow(distX, 2) + Math.pow(distY, 2) + Math.pow(distZ, 2));
-				for(var i = 0; i < facestart.neighbors.length; i++){
-					for(var j = 0; j < facestart.neighbors[i].length; j++){
-						var faceinfo = buildFaceInfo(facestart.neighbors[i][j], facestart);
-						//Compute distance between neighbor of facestart and faceend
-						var distneighX = faceend.centerX - faceinfo.centerX;
-						var distneighY = faceend.centerY - faceinfo.centerY;
-						var distneighZ = faceend.centerZ - faceinfo.centerZ;
-						var distneigh = Math.sqrt(Math.pow(distneighX, 2) + Math.pow(distneighY, 2) + Math.pow(distneighZ, 2));
-						currDiff = dist - distneigh;
-						//If facestart neighbor's centroid is the nearest one of faceend's centroid (for now)
-						if(maxDiff == undefined || maxDiff < currDiff){
-							if(outline.indexOf(faceinfo.faceId) == -1){
-								maxDiff = currDiff;
-								nextFace = faceinfo;
-							}
-						}
-					}
-				}
-				//Elected face is selected, we call this function again with this face
-				//instead of facestart as first parameter.
-				geometryMesh.faces[nextFace.faceId].color.setRGB(0,1,0);
-				outline[outline.length] = nextFace.faceId;
-				draw_outline(nextFace, faceend);
-			}
-			
-			function getOutlineCenterFace(lastface, firstface){
-				var currMinDist, oldMinDist, minDist, centerFace = lastface, bestneigh;
-				//Compute center of right between faces parameters' centroids
-				var cX = (lastface.centerX + firstface.centerX) / 2;
-				var cY = (lastface.centerY + firstface.centerY) / 2;
-				var cZ = (lastface.centerZ + firstface.centerZ) / 2;
-				//Compute distance between lastface and center of right.
-				var distX = cX - lastface.centerX;
-				var distY = cY - lastface.centerY;
-				var distZ = cZ - lastface.centerZ;
-				var dist = (Math.sqrt(Math.pow(distX, 2) + Math.pow(distY, 2) + Math.pow(distZ, 2)));
-				currMinDist = dist;
-				oldMinDist = dist + 1;
-				//Search for a face which its centroid is the nearest point from the outline center
-				//(Stop when distance increases, that is to say when last distance computed > distance computed
-				//before this one).
-				while(currMinDist < oldMinDist){
-					for(var i = 0; i < centerFace.neighbors.length; i++){
-						for(var j = 0; j < centerFace.neighbors[i].length; j++){
-							var faceinfo = buildFaceInfo(centerFace.neighbors[i][j], centerFace);
-							//Compute distance between neighbor of current centerFace and center of right.
-							var distneighX = cX - faceinfo.centerX;
-							var distneighY = cY - faceinfo.centerY;
-							var distneighZ = cZ - faceinfo.centerZ;
-							var distneigh = (Math.sqrt(Math.pow(distneighX, 2) + Math.pow(distneighY, 2) + Math.pow(distneighZ, 2)));
-							//If facestart neighbor's centroid is the nearest one of center of right (for now)
-							if(minDist == undefined || minDist > distneigh){
-								if(faceinfo.faceId != centerFace.faceId){
-									minDist = distneigh;
-									bestneigh = faceinfo;
-								}
-							}
-						}
-					}
-					centerFace = bestneigh;
-					oldMinDist = currMinDist;
-					currMinDist = minDist;
-					minDist = undefined;
-					bestneigh = undefined;
-				}
-				return centerFace;
-			}
-			
-			function spreadCheckedColor(face, insidetab){
-				var outlineReached = false;
-				var currFace = face;
-				for(var i = 0; i < currFace.neighbors.length; i++){
-					for(var j = 0; j < currFace.neighbors[i].length; j++){
-						var faceinfo = buildFaceInfo(currFace.neighbors[i][j], currFace);
-						//Check if this neighbor belongs to the outline
-						if(outline.indexOf(faceinfo.faceId) != -1){
-							geometryMesh.faces[currFace.faceId].color.setRGB(0, 1, 0);
-							return;
-						}
-					}
-				}
-				for(var i = 0; i < currFace.neighbors.length; i++){
-					for(var j = 0; j < currFace.neighbors[i].length; j++){
-						var faceinfo = buildFaceInfo(currFace.neighbors[i][j], currFace);
-						var color = geometryMesh.faces[faceinfo.faceId].color;
-						if(insidetab.indexOf(faceinfo.faceId) == -1){
-							geometryMesh.faces[faceinfo.faceId].color.setRGB(0, 1, 0);
-							insidetab[insidetab.length] = faceinfo.faceId;
-							spreadCheckedColor(faceinfo, insidetab);
-						}
-					}
-				}
-			}
-			
-			function fill_outline(lastface, firstface){
-				var inside = new Array();
-				var centerFace = getOutlineCenterFace(lastface, firstface);
-				//geometryMesh.faces[centerFace.faceId].color.setRGB(0,1,0);
-				spreadCheckedColor(centerFace, inside);
-				outline = outline.concat(inside);
-			}
-			
 			function onMouseClick(event){
 				event.preventDefault();
 				if(event.button == 0){ //Left Click
 					//Face chosen and not yet in table.
 					if((findex != undefined) && (outline.indexOf(findex) == -1)){
 						console.log("Add point and face selected.");
-						var faceinfo = buildFaceInfo(findex, undefined);
+						var faceinfo = buildFaceInfo(findex, geometryMesh, vertexToFace);
 						facesInfo[facesInfo.length] = faceinfo;
 						outline[outline.length] = findex;
 						facesSelected ++;
@@ -478,12 +255,12 @@
 						//At least two faces selected for outline drawing.
 						if(facesInfo.length >= 2 && facesSelected >= 2){
 							//astar_algorithm(facesInfo[facesInfo.length - 2], facesInfo[facesInfo.length - 1], 7);
-							draw_outline(facesInfo[facesInfo.length - 2], facesInfo[facesInfo.length - 1]);
+							draw_outline(facesInfo[facesInfo.length - 2], facesInfo[facesInfo.length - 1], geometryMesh, outline);
 							if(facesInfo.length % 4 == 0){
 								//astar_algorithm(facesInfo[facesInfo.length - 4], facesInfo[facesInfo.length - 1], 7);
-								draw_outline(facesInfo[facesInfo.length - 4], facesInfo[facesInfo.length - 1]);
-								console.log("Outline finished (4 faces selected)");
-								fill_outline(facesInfo[facesInfo.length - 3], facesInfo[facesInfo.length - 1]);
+								draw_outline(facesInfo[facesInfo.length - 4], facesInfo[facesInfo.length - 1], geometryMesh, outline);
+								console.log("Outline finished and filled (4 faces selected)");
+								outline = fill_outline(facesInfo[facesInfo.length - 3], facesInfo[facesInfo.length - 1], geometryMesh, outline, vertexToFace);
 								facesSelected = 0; //New outline
 							}
 							geometryMesh.colorsNeedUpdate = true;
